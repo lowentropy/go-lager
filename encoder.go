@@ -281,6 +281,10 @@ func (e *Encoder) write(v interface{}, sendType bool) {
 		e.writeUint64(v.(uint64))
 	case reflect.Uintptr:
 		e.writeUintptr(v.(uintptr))
+	case reflect.Float32:
+		e.writeFloat32(v.(float32))
+	case reflect.Float64:
+		e.writeFloat64(v.(float64))
 	case reflect.Complex64:
 		e.writeComplex64(v.(complex64))
 	case reflect.Complex128:

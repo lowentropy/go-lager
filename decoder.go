@@ -136,12 +136,18 @@ func (d *Decoder) readType() reflect.Type {
 		return reflect.TypeOf(uint64(0))
 	case reflect.Uintptr:
 		return reflect.TypeOf(uintptr(0))
+	case reflect.Float32:
+		return reflect.TypeOf(float32(0))
+	case reflect.Float64:
+		return reflect.TypeOf(float64(0))
 	case reflect.Complex64:
 		return reflect.TypeOf(complex64(0))
 	case reflect.Complex128:
 		return reflect.TypeOf(complex128(0))
-	case reflect.Array, reflect.Chan, reflect.Func, reflect.Interface:
+	case reflect.Array, reflect.Chan, reflect.Func:
 		panic("Can't read " + kind.String() + " types")
+	case reflect.Interface:
+		return interfaceType
 	case reflect.Map:
 		key := d.readType()
 		elem := d.readType()
@@ -376,14 +382,20 @@ func (d *Decoder) read(t reflect.Type) interface{} {
 		value = d.readUint64()
 	case reflect.Uintptr:
 		value = d.readUintptr()
+	case reflect.Float32:
+		value = d.readFloat32()
+	case reflect.Float64:
+		value = d.readFloat64()
 	case reflect.Complex64:
 		value = d.readComplex64()
 	case reflect.Complex128:
 		value = d.readComplex128()
 	case reflect.Array:
 		panic("Can't read arrays")
-	case reflect.Chan, reflect.Func, reflect.Interface:
-		panic("Can't write Chan, Func, or Interface")
+	case reflect.Chan, reflect.Func:
+		panic("Can't read " + t.Kind().String() + " types")
+	case reflect.Interface:
+		value = d.read(d.readType())
 	case reflect.Map:
 		value = d.readMap(t)
 	case reflect.Ptr:
@@ -395,7 +407,7 @@ func (d *Decoder) read(t reflect.Type) interface{} {
 	case reflect.Struct:
 		value = d.readStruct(t)
 	default:
-		panic("Can't read unknown kind")
+		panic("Unknown type kind: " + t.Kind().String())
 	}
 	return value
 }

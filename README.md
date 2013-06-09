@@ -16,7 +16,7 @@ Usage
 =====
 
     import lager "github.com/lowentropy/go-lager"
-    
+
     struct Foo { Ptr *Foo }
 
 Writing
@@ -57,7 +57,7 @@ TODO
 Caveats
 =======
 
-This is pre-alpha quality software and, as you'll notice, lacks any tests :P
+This is pre-alpha quality software and is emphatically NOT ready for production use!
 
 go-lager's binary format is also not as space-efficient or flexible as gob's.
 

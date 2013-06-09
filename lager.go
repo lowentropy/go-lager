@@ -13,9 +13,12 @@ func (e err) Error() string {
 }
 
 var typeMap map[string]reflect.Type
+var interfaceType reflect.Type
 
 func init() {
+	var slice []interface{}
 	typeMap = make(map[string]reflect.Type)
+	interfaceType = reflect.TypeOf(slice).Elem()
 }
 
 func registerType(t reflect.Type) {
