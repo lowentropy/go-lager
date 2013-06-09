@@ -7,19 +7,36 @@ import (
 	"testing"
 )
 
-func assertEncodes(t *testing.T, expected interface{}) {
+type anInterface interface {
+	aMethod()
+}
+
+type aStruct struct {
+	A int
+	B string
+	C float64
+}
+
+func (_ aStruct) aMethod() {}
+
+func roundtrip(t *testing.T, in interface{}) interface{} {
 	buf := new(bytes.Buffer)
 	enc := NewEncoder(buf)
-	enc.Write(expected)
+	enc.Write(in)
 	enc.Finish()
 	dec, err := NewDecoder(buf)
 	if err != nil {
 		t.Fatal("Could not construct decoder")
 	}
-	actual, err := dec.Read()
+	out, err := dec.Read()
 	if err != nil {
 		t.Fatal("Failed to read object")
 	}
+	return out
+}
+
+func assertEncodes(t *testing.T, expected interface{}) {
+	actual := roundtrip(t, expected)
 	va := reflect.ValueOf(actual)
 	ve := reflect.ValueOf(expected)
 	if va.Type() != ve.Type() {
@@ -73,7 +90,7 @@ func TestEncodeBool(t *testing.T) {
 func TestEncodeInt(t *testing.T) {
 	assertEncodes(t, int(3))
 	assertEncodes(t, int(0))
-	assertEncodes(t, int(-11))
+	assertEncodes(t, int(-1))
 	assertEncodes(t, int(math.MinInt64))
 	assertEncodes(t, int(math.MaxInt64))
 }
@@ -172,43 +189,22 @@ func TestEncodeComplex128(t *testing.T) {
 	assertEncodes(t, complex128(55-2.7i))
 }
 
-type foo interface {
-	DoStuff()
-}
-
-type fooImpl struct{}
-
-func (_ fooImpl) DoStuff() {}
-
 func TestEncodeInterface(t *testing.T) {
-	slice := []foo{fooImpl{}}
+	slice := []anInterface{aStruct{}}
 	assertEncodes(t, slice)
 }
 
 func TestEncodeMap(t *testing.T) {
-	x := 216
 	assertEncodes(t, map[int]string{3: "foo", 5: "bar"})
-	assertEncodes(t, map[string]*int{"bluh": &x})
-	assertEncodes(t, map[*int]complex128{&x: 5 - 2i})
 	assertEncodes(t, map[int]map[string]float32{42: map[string]float32{"zugzug": 3.4}})
 }
 
-func TestEncodePtr(t *testing.T) {
-	str := "aksdjfhasd"
-	num := 1294
-	pnum := &num
-	ppnum := &pnum
-	pppnum := &ppnum
-	assertEncodes(t, &str)
-	assertEncodes(t, &num)
-	assertEncodes(t, &pppnum)
+func TestEncodeSlice(t *testing.T) {
+	assertEncodes(t, []int{1, 2, 3, 4, 5})
 }
 
-func TestEncodeSlice(t *testing.T) {
-	s1 := "foo"
-	s2 := "bar"
-	assertEncodes(t, []int{1, 2, 3, 4, 5})
-	assertEncodes(t, []*string{&s1, &s2})
+func TestEncodeInterfaceSlice(t *testing.T) {
+	assertEncodes(t, []interface{}{1, "foo", 2.5})
 }
 
 func TestEncodeString(t *testing.T) {
@@ -216,10 +212,82 @@ func TestEncodeString(t *testing.T) {
 	assertEncodes(t, "askjdlhfakjdhflakjdshf")
 }
 
-func TestEncodeInterfaceSlice(t *testing.T) {
-	assertEncodes(t, []interface{}{1, "foo", 2.5})
+func TestEncodeStruct(t *testing.T) {
+	assertEncodes(t, aStruct{216, "foo", 3.14})
 }
 
-// TODO: the rest of them...
-// TODO: common ptr test
-// TODO: recursive ptr test
+func TestPointerMovementAsInterface(t *testing.T) {
+	value := aStruct{216, "foo", 3.14}
+	p := []interface{}{&value}
+	p_ := roundtrip(t, p).([]interface{})
+	if p[0] == p_[0] {
+		t.Fatal("Pointer identical to original")
+	}
+}
+
+func TestPointerMovementAsSlice(t *testing.T) {
+	value := aStruct{216, "foo", 3.14}
+	p := []*aStruct{&value}
+	p_ := roundtrip(t, p).([]*aStruct)
+	if p[0] == p_[0] {
+		t.Fatal("Pointer identical to original")
+	}
+}
+
+func TestPointerMovementAsStruct(t *testing.T) {
+	value := aStruct{216, "foo", 3.14}
+
+	type hasPtr struct {
+		Ptr *aStruct
+	}
+
+	p := hasPtr{&value}
+	p_ := roundtrip(t, p).(hasPtr)
+	if p.Ptr == p_.Ptr {
+		t.Fatal("Pointer identical to original")
+	}
+}
+
+func TestSharedPointersAsStruct(t *testing.T) {
+	value := aStruct{216, "foo", 3.14}
+
+	type hasPtr struct {
+		A, B *aStruct
+	}
+
+	p := hasPtr{&value, &value}
+	p_ := roundtrip(t, p).(hasPtr)
+	if p_.A != p_.B {
+		t.Fatal("Shared pointers came back different")
+	}
+}
+
+func TestSharedPointersAsSlice(t *testing.T) {
+	value := aStruct{216, "foo", 3.14}
+	ps := []*aStruct{&value, &value}
+	ps_ := roundtrip(t, ps).([]*aStruct)
+	if ps_[0] != ps_[1] {
+		t.Fatal("Shared pointers came back different")
+	}
+}
+
+func TestRecursivePointers(t *testing.T) {
+	type hasPtr struct {
+		Ptr *hasPtr
+	}
+
+	a := hasPtr{nil}
+	b := hasPtr{&a}
+	a.Ptr = &b
+
+	s := []*hasPtr{&a, &b}
+	s_ := roundtrip(t, s).([]*hasPtr)
+
+	a_, b_ := s_[0], s_[1]
+	if a_.Ptr != b_ || b_.Ptr != a_ {
+		t.Fatal("Recursive pointers came back wrong")
+	}
+	if a_.Ptr == a.Ptr || b_.Ptr == b.Ptr {
+		t.Fatal("Pointers were not moved")
+	}
+}

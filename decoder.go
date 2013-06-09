@@ -8,23 +8,25 @@ import (
 )
 
 type Decoder struct {
-	reader   io.ByteReader
-	objects  int
-	typeMap  map[uint]reflect.Type
-	ptrMap   map[uintptr]interface{}
-	deferred []reflect.Value
+	reader     io.ByteReader
+	objects    int
+	typeMap    map[uint]reflect.Type
+	ptrMap     map[uintptr]uintptr
+	postHeader bool
 }
 
 func NewDecoder(r io.ByteReader) (*Decoder, error) {
 	d := &Decoder{
-		reader:  r,
-		objects: 0,
-		typeMap: make(map[uint]reflect.Type),
-		ptrMap:  make(map[uintptr]interface{}),
+		reader:     r,
+		objects:    0,
+		typeMap:    make(map[uint]reflect.Type),
+		ptrMap:     make(map[uintptr]uintptr),
+		postHeader: false,
 	}
 	if err := d.readHeader(); err != nil {
 		return nil, err
 	}
+	d.postHeader = true
 	return d, nil
 }
 
@@ -49,29 +51,38 @@ func (d *Decoder) readHeader() error {
 		d.typeMap[id] = t
 	}
 	n = d.readInt()
+	objs := make([]reflect.Value, n)
 	for i := 0; i < n; i++ {
 		ptr := d.readUintptr()
-		d.ptrMap[ptr] = d.read(d.readType())
+		t := d.readType()
+		v := reflect.New(t)
+		v.Elem().Set(reflect.ValueOf(d.read(t)))
+		objs[i] = v.Elem()
+		d.ptrMap[ptr] = v.Pointer()
+	}
+	for _, obj := range objs {
+		d.patch(obj)
 	}
 	return nil
 }
 
-func (d *Decoder) Finish() {
-	for _, v := range d.deferred {
-		switch v.Type().Kind() {
-		case reflect.Slice:
-			d.patchSlice(v)
-		case reflect.Map:
-			d.patchMap(v)
-		case reflect.Struct:
-			d.patchStruct(v)
-		}
+func (d *Decoder) patch(v reflect.Value) {
+	switch v.Type().Kind() {
+	case reflect.Slice:
+		d.patchSlice(v)
+	case reflect.Map:
+		d.patchMap(v)
+	case reflect.Struct:
+		d.patchStruct(v)
+	case reflect.Ptr:
+		d.patchPtr(v)
 	}
 }
 
 func (d *Decoder) patchPtr(v reflect.Value) {
-	pmap := reflect.ValueOf(d.ptrMap)
-	v.Set(pmap.MapIndex(v).Addr())
+	ptr := unsafe.Pointer(d.ptrMap[v.Pointer()])
+	newval := reflect.NewAt(v.Type().Elem(), ptr)
+	v.Set(newval)
 }
 
 func (d *Decoder) patchSlice(v reflect.Value) {
@@ -103,10 +114,6 @@ func (d *Decoder) patchStruct(v reflect.Value) {
 			d.patchPtr(v.Field(i))
 		}
 	}
-}
-
-func (d *Decoder) deferPointers(v reflect.Value) {
-	d.deferred = append(d.deferred, v)
 }
 
 func (d *Decoder) readType() reflect.Type {
@@ -294,14 +301,19 @@ func (d *Decoder) readMap(t reflect.Type) interface{} {
 		val := reflect.ValueOf(d.read(elemType))
 		v.SetMapIndex(key, val)
 	}
-	if isPtr(keyType) || isPtr(elemType) {
-		d.deferPointers(v)
-	}
 	return v.Interface()
 }
 
 func (d *Decoder) readPtr(t reflect.Type) interface{} {
-	ptr := unsafe.Pointer(d.readUintptr())
+	addr := d.readUintptr()
+	if d.postHeader {
+		patched, ok := d.ptrMap[addr]
+		if !ok {
+			panic("Missing pointer " + string(addr))
+		}
+		addr = patched
+	}
+	ptr := unsafe.Pointer(addr)
 	return reflect.NewAt(t.Elem(), ptr).Interface()
 }
 
@@ -312,9 +324,6 @@ func (d *Decoder) readSlice(t reflect.Type) interface{} {
 	for i := 0; i < n; i++ {
 		elem := reflect.ValueOf(d.read(inner))
 		v = reflect.Append(v, elem)
-	}
-	if isPtr(inner) {
-		d.deferPointers(v)
 	}
 	return v.Interface()
 }
@@ -331,7 +340,6 @@ func (d *Decoder) readString() string {
 func (d *Decoder) readStruct(t reflect.Type) interface{} {
 	n := d.readInt()
 	v := reflect.New(t).Elem()
-	anyPtr := false
 	for i := 0; i < n; i++ {
 		name := d.readString()
 		field, ok := t.FieldByName(name)
@@ -340,10 +348,6 @@ func (d *Decoder) readStruct(t reflect.Type) interface{} {
 		}
 		value := reflect.ValueOf(d.read(field.Type))
 		v.FieldByName(name).Set(value)
-		anyPtr = anyPtr || isPtr(field.Type)
-	}
-	if anyPtr {
-		d.deferPointers(v)
 	}
 	return v.Interface()
 }
