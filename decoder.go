@@ -33,8 +33,7 @@ func (d *Decoder) Read() (interface{}, error) {
 		return nil, err{"Out of objects"}
 	}
 	d.objects--
-	t := d.readType()
-	return d.read(t), nil
+	return d.read(d.readType()), nil
 }
 
 func (d *Decoder) readHeader() error {
@@ -52,9 +51,7 @@ func (d *Decoder) readHeader() error {
 	n = d.readInt()
 	for i := 0; i < n; i++ {
 		ptr := d.readUintptr()
-		t := d.readType()
-		v := d.read(t)
-		d.ptrMap[ptr] = v
+		d.ptrMap[ptr] = d.read(d.readType())
 	}
 	return nil
 }
@@ -78,14 +75,15 @@ func (d *Decoder) patchPtr(v reflect.Value) {
 }
 
 func (d *Decoder) patchSlice(v reflect.Value) {
-	for i := 0; i < v.Len(); i++ {
+	n := v.Len()
+	for i := 0; i < n; i++ {
 		d.patchPtr(v.Index(i))
 	}
 }
 
 func (d *Decoder) patchMap(v reflect.Value) {
-	keyPtr := v.Type().Key().Kind() == reflect.Ptr
-	valPtr := v.Type().Elem().Kind() == reflect.Ptr
+	keyPtr := isPtr(v.Type().Key())
+	valPtr := isPtr(v.Type().Elem())
 	for _, key := range v.MapKeys() {
 		if keyPtr {
 			d.patchPtr(key)
@@ -97,10 +95,12 @@ func (d *Decoder) patchMap(v reflect.Value) {
 }
 
 func (d *Decoder) patchStruct(v reflect.Value) {
-	for i := 0; i < v.NumField(); i++ {
-		vi := v.Field(i)
-		if vi.Type().Kind() == reflect.Ptr {
-			d.patchPtr(vi)
+	n := v.NumField()
+	t := v.Type()
+	for i := 0; i < n; i++ {
+		f := t.Field(i)
+		if !privateField(f) && isPtr(f.Type) {
+			d.patchPtr(v.Field(i))
 		}
 	}
 }
@@ -140,10 +140,8 @@ func (d *Decoder) readType() reflect.Type {
 		return reflect.TypeOf(complex64(0))
 	case reflect.Complex128:
 		return reflect.TypeOf(complex128(0))
-	case reflect.Array:
-		panic("Arrays are not supported")
-	case reflect.Chan, reflect.Func, reflect.Interface:
-		panic("Can't read Chan, Func, or Interface")
+	case reflect.Array, reflect.Chan, reflect.Func, reflect.Interface:
+		panic("Can't read " + kind.String() + " types")
 	case reflect.Map:
 		key := d.readType()
 		elem := d.readType()
@@ -162,7 +160,7 @@ func (d *Decoder) readType() reflect.Type {
 		}
 		return t
 	}
-	panic("Unknown type kind")
+	panic("Unknown type kind: " + kind.String())
 }
 
 func (d *Decoder) readBool() bool {
@@ -292,15 +290,15 @@ func (d *Decoder) readMap(t reflect.Type) interface{} {
 		val := reflect.ValueOf(d.read(elemType))
 		v.SetMapIndex(key, val)
 	}
-	if keyType.Kind() == reflect.Ptr || elemType.Kind() == reflect.Ptr {
+	if isPtr(keyType) || isPtr(elemType) {
 		d.deferPointers(v)
 	}
 	return v.Interface()
 }
 
 func (d *Decoder) readPtr(t reflect.Type) interface{} {
-	v := reflect.NewAt(t.Elem(), unsafe.Pointer(d.readUintptr()))
-	return v.Interface()
+	ptr := unsafe.Pointer(d.readUintptr())
+	return reflect.NewAt(t.Elem(), ptr).Interface()
 }
 
 func (d *Decoder) readSlice(t reflect.Type) interface{} {
@@ -311,7 +309,7 @@ func (d *Decoder) readSlice(t reflect.Type) interface{} {
 		elem := reflect.ValueOf(d.read(inner))
 		v = reflect.Append(v, elem)
 	}
-	if inner.Kind() == reflect.Ptr {
+	if isPtr(inner) {
 		d.deferPointers(v)
 	}
 	return v.Interface()
@@ -323,8 +321,7 @@ func (d *Decoder) readString() string {
 	for i := 0; i < n; i++ {
 		buf[i], _ = d.reader.ReadByte()
 	}
-	str := string(buf)
-	return str
+	return string(buf)
 }
 
 func (d *Decoder) readStruct(t reflect.Type) interface{} {
@@ -339,7 +336,7 @@ func (d *Decoder) readStruct(t reflect.Type) interface{} {
 		}
 		value := reflect.ValueOf(d.read(field.Type))
 		v.FieldByName(name).Set(value)
-		anyPtr = anyPtr || (field.Type.Kind() == reflect.Ptr)
+		anyPtr = anyPtr || isPtr(field.Type)
 	}
 	if anyPtr {
 		d.deferPointers(v)
@@ -348,7 +345,7 @@ func (d *Decoder) readStruct(t reflect.Type) interface{} {
 }
 
 func (d *Decoder) read(t reflect.Type) interface{} {
-	if t.Kind() == reflect.Interface {
+	if isInterface(t) {
 		t = d.readType()
 	}
 

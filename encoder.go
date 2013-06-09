@@ -62,6 +62,16 @@ func (e *Encoder) registerType(t reflect.Type) uint {
 	return id
 }
 
+func (e *Encoder) storePtr(w reflect.Value, ptr uintptr) {
+	if _, ok := e.ptrMap[ptr]; !ok {
+		e.ptrMap[ptr] = w.Elem().Interface()
+		tmp := e.buf
+		e.buf = new(bytes.Buffer)
+		e.write(e.ptrMap[ptr], false)
+		e.buf = tmp
+	}
+}
+
 func (e *Encoder) writeType(t reflect.Type) {
 	e.writeUint8(uint8(t.Kind()))
 	switch t.Kind() {
@@ -192,50 +202,31 @@ func (e *Encoder) writeComplex128(v complex128) {
 	e.writeUint64(math.Float64bits(imag(v)))
 }
 
-func (e *Encoder) writeArray(v interface{}) {
-	panic("Arrays are not supported")
-	// v_ := reflect.ValueOf(v)
-	// l := v_.Len()
-	// e.writeInt(l)
-	// isInterface := reflect.TypeOf(v).Elem().Kind() == reflect.Interface
-	// for i := 0; i < l; i++ {
-	// 	e.write(v_.Index(i).Interface(), isInterface)
-	// }
-}
-
 func (e *Encoder) writeMap(v interface{}) {
-	v_ := reflect.ValueOf(v)
-	l := v_.Len()
-	e.writeInt(l)
-	t := reflect.TypeOf(v)
-	keyIsInterface := t.Key().Kind() == reflect.Interface
-	valIsInterface := t.Elem().Kind() == reflect.Interface
-	for _, key := range v_.MapKeys() {
-		e.write(key, keyIsInterface)
-		e.write(v_.MapIndex(key), valIsInterface)
+	w := reflect.ValueOf(v)
+	e.writeInt(w.Len())
+	keyIsInterface := w.Type().Key().Kind() == reflect.Interface
+	valIsInterface := w.Type().Elem().Kind() == reflect.Interface
+	for _, key := range w.MapKeys() {
+		e.write(key.Interface(), keyIsInterface)
+		e.write(w.MapIndex(key).Interface(), valIsInterface)
 	}
 }
 
 func (e *Encoder) writePtr(v interface{}) {
-	v_ := reflect.ValueOf(v)
-	ptr := v_.Pointer()
-	if _, ok := e.ptrMap[ptr]; !ok {
-		e.ptrMap[ptr] = v_.Elem().Interface()
-		tmp := e.buf
-		e.buf = new(bytes.Buffer)
-		e.write(e.ptrMap[ptr], true)
-		e.buf = tmp
-	}
+	w := reflect.ValueOf(v)
+	ptr := w.Pointer()
+	e.storePtr(w, ptr)
 	e.writeUintptr(ptr)
 }
 
 func (e *Encoder) writeSlice(v interface{}) {
-	v_ := reflect.ValueOf(v)
-	l := v_.Len()
-	e.writeInt(l)
-	isInterface := reflect.TypeOf(v).Elem().Kind() == reflect.Interface
-	for i := 0; i < l; i++ {
-		e.write(v_.Index(i).Interface(), isInterface)
+	w := reflect.ValueOf(v)
+	e.writeInt(w.Len())
+	isInterface := isInterface(w.Type().Elem())
+	n := w.Len()
+	for i := 0; i < n; i++ {
+		e.write(w.Index(i).Interface(), isInterface)
 	}
 }
 
@@ -245,10 +236,10 @@ func (e *Encoder) writeString(v string) {
 }
 
 func (e *Encoder) writeStruct(v interface{}) {
-	t := reflect.TypeOf(v)
+	w := reflect.ValueOf(v)
+	t := w.Type()
 	e.registerType(t)
 	e.writeInt(numPublicFields(t))
-	v_ := reflect.ValueOf(v)
 	n := t.NumField()
 	for i := 0; i < n; i++ {
 		f := t.Field(i)
@@ -256,8 +247,7 @@ func (e *Encoder) writeStruct(v interface{}) {
 			continue
 		}
 		e.writeString(f.Name)
-		isInterface := f.Type.Kind() == reflect.Interface
-		e.write(v_.Field(i).Interface(), isInterface)
+		e.write(w.Field(i).Interface(), isInterface(f.Type))
 	}
 }
 
@@ -295,10 +285,8 @@ func (e *Encoder) write(v interface{}, sendType bool) {
 		e.writeComplex64(v.(complex64))
 	case reflect.Complex128:
 		e.writeComplex128(v.(complex128))
-	case reflect.Array:
-		e.writeArray(v)
-	case reflect.Chan, reflect.Func, reflect.Interface:
-		panic("Can't write Chan, Func, or Interface")
+	case reflect.Array, reflect.Chan, reflect.Func, reflect.Interface:
+		panic("Can't write " + t.Kind().String() + " types")
 	case reflect.Map:
 		e.writeMap(v)
 	case reflect.Ptr:
@@ -309,5 +297,7 @@ func (e *Encoder) write(v interface{}, sendType bool) {
 		e.writeString(v.(string))
 	case reflect.Struct:
 		e.writeStruct(v)
+	default:
+		panic("Unknown type kind: " + t.Kind().String())
 	}
 }

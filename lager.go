@@ -37,3 +37,11 @@ func numPublicFields(t reflect.Type) int {
 	}
 	return public
 }
+
+func isInterface(t reflect.Type) bool {
+	return t.Kind() == reflect.Interface
+}
+
+func isPtr(t reflect.Type) bool {
+	return t.Kind() == reflect.Ptr
+}
