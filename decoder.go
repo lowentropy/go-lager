@@ -146,8 +146,6 @@ func (d *Decoder) readType() reflect.Type {
 		return reflect.TypeOf(complex128(0))
 	case reflect.Array, reflect.Chan, reflect.Func:
 		panic("Can't read " + kind.String() + " types")
-	case reflect.Interface:
-		return interfaceType
 	case reflect.Map:
 		key := d.readType()
 		elem := d.readType()
@@ -158,7 +156,7 @@ func (d *Decoder) readType() reflect.Type {
 		return reflect.SliceOf(d.readType())
 	case reflect.String:
 		return reflect.TypeOf("")
-	case reflect.Struct:
+	case reflect.Struct, reflect.Interface:
 		id := d.readUint()
 		t, ok := d.typeMap[id]
 		if !ok {

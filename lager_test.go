@@ -172,8 +172,17 @@ func TestEncodeComplex128(t *testing.T) {
 	assertEncodes(t, complex128(55-2.7i))
 }
 
+type foo interface {
+	DoStuff()
+}
+
+type fooImpl struct{}
+
+func (_ fooImpl) DoStuff() {}
+
 func TestEncodeInterface(t *testing.T) {
-	assertEncodes(t, interface{}(216))
+	slice := []foo{fooImpl{}}
+	assertEncodes(t, slice)
 }
 
 func TestEncodeMap(t *testing.T) {

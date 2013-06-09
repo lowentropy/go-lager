@@ -80,7 +80,7 @@ func (e *Encoder) writeType(t reflect.Type) {
 		e.writeType(t.Elem())
 	case reflect.Ptr, reflect.Slice:
 		e.writeType(t.Elem())
-	case reflect.Struct:
+	case reflect.Struct, reflect.Interface:
 		id := e.registerType(t)
 		e.writeUint(id)
 	}
