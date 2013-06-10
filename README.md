@@ -22,20 +22,21 @@ Usage
 Writing
 -------
 
-    foo := new(Foo)
-    foo.Ptr = foo
-
-    writer := ... // this is your output stream
-    encoder := lager.NewEncoder(writer)
-    encoder.Write(foo)
+    foo := new(Foo)                           // make an object to encode
+    foo.Ptr = foo                             // you can have self-references
+    writer := ...                             // this is your output stream
+    encoder := lager.NewEncoder(writer)       // create the encoder
+    encoder.Write(foo)                        // write the object to the stream
+    encoder.Finish()                          // flush and terminate encoding
 
 Reading
 -------
 
-    reader := ... // this is your input stream
-    decoder, err := lager.NewDecoder(reader)
-    thing, err := decoder.Read()
-    foo := thing.(*Foo)
+    lager.Register(Foo{})                     // register the Foo type
+    reader := ...                             // this is your input stream
+    decoder, err := lager.NewDecoder(reader)  // create the decoder
+    thing, err := decoder.Read()              // read the next object
+    foo := thing.(*Foo)                       // cast to static type
 
 Encoding Details
 ================
