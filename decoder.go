@@ -1,6 +1,7 @@
 package lager
 
 import (
+	"bufio"
 	"io"
 	"math"
 	"reflect"
@@ -19,11 +20,11 @@ type Decoder struct {
 }
 
 // NewDecoder creates a new Decoder whose input source is the given
-// io.ByteReader. On creation, the decoder reads the header section
+// io.Reader. On creation, the decoder reads the header section
 // from the stream. Errors can occur during this phase.
-func NewDecoder(r io.ByteReader) (*Decoder, error) {
+func NewDecoder(r io.Reader) (*Decoder, error) {
 	d := &Decoder{
-		reader:     r,
+		reader:     bufio.NewReader(r),
 		objects:    0,
 		typeMap:    make(map[uint]reflect.Type),
 		ptrMap:     make(map[uintptr]uintptr),
