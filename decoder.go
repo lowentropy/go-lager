@@ -80,28 +80,24 @@ func (d *Decoder) patch(v reflect.Value) {
 }
 
 func (d *Decoder) patchPtr(v reflect.Value) {
-	ptr := unsafe.Pointer(d.ptrMap[v.Pointer()])
-	newval := reflect.NewAt(v.Type().Elem(), ptr)
-	v.Set(newval)
+	if isPtr(v.Type()) {
+		ptr := unsafe.Pointer(d.ptrMap[v.Pointer()])
+		newval := reflect.NewAt(v.Type().Elem(), ptr)
+		v.Set(newval)
+	}
 }
 
 func (d *Decoder) patchSlice(v reflect.Value) {
 	n := v.Len()
 	for i := 0; i < n; i++ {
-		d.patchPtr(v.Index(i))
+		d.patch(v.Index(i))
 	}
 }
 
 func (d *Decoder) patchMap(v reflect.Value) {
-	keyPtr := isPtr(v.Type().Key())
-	valPtr := isPtr(v.Type().Elem())
 	for _, key := range v.MapKeys() {
-		if keyPtr {
-			d.patchPtr(key)
-		}
-		if valPtr {
-			d.patchPtr(v.MapIndex(key))
-		}
+		d.patch(key)
+		d.patch(v.MapIndex(key))
 	}
 }
 
@@ -110,8 +106,8 @@ func (d *Decoder) patchStruct(v reflect.Value) {
 	t := v.Type()
 	for i := 0; i < n; i++ {
 		f := t.Field(i)
-		if !privateField(f) && isPtr(f.Type) {
-			d.patchPtr(v.Field(i))
+		if !privateField(f) {
+			d.patch(v.Field(i))
 		}
 	}
 }

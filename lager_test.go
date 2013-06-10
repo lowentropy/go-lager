@@ -291,3 +291,13 @@ func TestRecursivePointers(t *testing.T) {
 		t.Fatal("Pointers were not moved")
 	}
 }
+
+func TestEmbeddedPointerInPtrMap(t *testing.T) {
+	s := aStruct{A: 3}
+	m := [][]*aStruct{[]*aStruct{&s}}
+	m_ := *roundtrip(t, &m).(*[][]*aStruct)
+	m_[0][0].A = 5
+	if s.A != 3 {
+		t.Fatal("Embedded pointer from map was not patched")
+	}
+}
