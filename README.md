@@ -37,18 +37,6 @@ Reading
     thing, err := decoder.Read()
     foo := thing.(*Foo)
 
-Running
-=======
-
-go-lager is currently under development. It comes with a main.go file that demonstrates
-how to run. The example creates two structs that point to each other, encodes them to a file,
-decodes from the file, and shows off the recursive pointers. To build and run:
-
-    git clone https://github.com/lowentropy/go-lager
-    cd go-lager
-    go build
-    ./go-lager
-
 Encoding Details
 ================
 
