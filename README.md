@@ -3,6 +3,8 @@ go-lager
 
 Serialize Go data with cyclic pointers
 
+[Documentation](http://godoc.org/github.com/lowentropy/go-lager)
+
 Purpose
 =======
 
