@@ -1,4 +1,4 @@
-package main
+package lager
 
 import (
 	"bytes"

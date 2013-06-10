@@ -1,4 +1,4 @@
-package main
+package lager
 
 import (
 	"io"
@@ -7,6 +7,9 @@ import (
 	"unsafe"
 )
 
+// Decoder is used to read Go objects from a stream of encoded bytes.
+// Please note that the decoder is not thread-safe, and should only be
+// used by a single goroutine.
 type Decoder struct {
 	reader     io.ByteReader
 	objects    int
@@ -15,6 +18,9 @@ type Decoder struct {
 	postHeader bool
 }
 
+// NewDecoder creates a new Decoder whose input source is the given
+// io.ByteReader. On creation, the decoder reads the header section
+// from the stream. Errors can occur during this phase.
 func NewDecoder(r io.ByteReader) (*Decoder, error) {
 	d := &Decoder{
 		reader:     r,
@@ -30,9 +36,11 @@ func NewDecoder(r io.ByteReader) (*Decoder, error) {
 	return d, nil
 }
 
+// Read returns the next object from the stream. If the end of stream
+// has been reached, it returns an error.
 func (d *Decoder) Read() (interface{}, error) {
 	if d.objects == 0 {
-		return nil, nil
+		return nil, EndOfStream{}
 	}
 	d.objects--
 	t, err := d.readType()

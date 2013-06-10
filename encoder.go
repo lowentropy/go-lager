@@ -1,4 +1,4 @@
-package main
+package lager
 
 import (
 	"bytes"
@@ -7,6 +7,9 @@ import (
 	"reflect"
 )
 
+// Encoder is used to serialize objects to an encoded stream of bytes.
+// Please note that the encoder is not thread-safe, and should only be
+// used by a single goroutine.
 type Encoder struct {
 	buf     *bytes.Buffer
 	writer  io.Writer
@@ -16,6 +19,8 @@ type Encoder struct {
 	ptrMap  map[uintptr]interface{}
 }
 
+// NewEncoder constructs a new encoder whose output stream is the
+// given io.Writer.
 func NewEncoder(w io.Writer) *Encoder {
 	return &Encoder{
 		writer:  w,
@@ -27,11 +32,17 @@ func NewEncoder(w io.Writer) *Encoder {
 	}
 }
 
+// Write encodes the given object and places it into the stream.
+// Objects are buffered until Finish() is called, because the header
+// information must come first on the stream for decoding to work.
 func (e *Encoder) Write(value interface{}) {
 	e.write(value, true)
 	e.objects++
 }
 
+// Finish should be called to terminate the stream. This collects
+// type information and a map of pointers and pushes them to the
+// output stream, followed by the buffered objects.
 func (e *Encoder) Finish() {
 	tmp := e.buf
 	e.buf = new(bytes.Buffer)
@@ -52,7 +63,7 @@ func (e *Encoder) Finish() {
 }
 
 func (e *Encoder) registerType(t reflect.Type) uint {
-	registerType(t)
+	RegisterType(t)
 	id, ok := e.typeIds[t]
 	if !ok {
 		id = e.nextId
