@@ -50,3 +50,9 @@ This is pre-alpha quality software and is emphatically NOT ready for production 
 go-lager's binary format is also not as space-efficient or flexible as gob's.
 
 Like gob, only exported struct fields (the ones that start with an upper-case letter) are encoded.
+
+TODO
+====
+
+ * Document encoding
+ * Make better use of bufio
