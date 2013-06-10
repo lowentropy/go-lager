@@ -15,28 +15,33 @@ go-lager solves this by only writing each object once. Pointers are not initiali
 Usage
 =====
 
-    import lager "github.com/lowentropy/go-lager"
-
-    struct Foo { Ptr *Foo }
+```go
+import lager "github.com/lowentropy/go-lager"
+struct Foo { Ptr *Foo }
+```
 
 Writing
 -------
 
-    foo := new(Foo)                           // make an object to encode
-    foo.Ptr = foo                             // you can have self-references
-    writer := ...                             // this is your output stream
-    encoder := lager.NewEncoder(writer)       // create the encoder
-    encoder.Write(foo)                        // write the object to the stream
-    encoder.Finish()                          // flush and terminate encoding
+```go
+foo := new(Foo)                           // make an object to encode
+foo.Ptr = foo                             // you can have self-references
+writer := ...                             // this is your output stream
+encoder := lager.NewEncoder(writer)       // create the encoder
+encoder.Write(foo)                        // write the object to the stream
+encoder.Finish()                          // flush and terminate encoding
+```
 
 Reading
 -------
 
-    lager.Register(Foo{})                     // register the Foo type
-    reader := ...                             // this is your input stream
-    decoder, err := lager.NewDecoder(reader)  // create the decoder
-    thing, err := decoder.Read()              // read the next object
-    foo := thing.(*Foo)                       // cast to static type
+```go
+lager.Register(Foo{})                     // register the Foo type
+reader := ...                             // this is your input stream
+decoder, err := lager.NewDecoder(reader)  // create the decoder
+thing, err := decoder.Read()              // read the next object
+foo := thing.(*Foo)                       // cast to static type
+```
 
 Encoding Details
 ================
