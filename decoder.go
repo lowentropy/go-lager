@@ -32,31 +32,74 @@ func NewDecoder(r io.ByteReader) (*Decoder, error) {
 
 func (d *Decoder) Read() (interface{}, error) {
 	if d.objects == 0 {
-		return nil, err{"Out of objects"}
+		return nil, nil
 	}
 	d.objects--
-	return d.read(d.readType()), nil
+	t, err := d.readType()
+	if err != nil {
+		return nil, err
+	}
+	return d.read(t)
 }
 
 func (d *Decoder) readHeader() error {
-	d.objects = d.readInt()
-	n := d.readInt()
+	var err error
+	if d.objects, err = d.readInt(); err != nil {
+		return err
+	}
+	if err = d.readTypeMap(); err != nil {
+		return err
+	}
+	if err = d.readPtrMap(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (d *Decoder) readTypeMap() error {
+	n, err := d.readInt()
+	if err != nil {
+		return err
+	}
 	for i := 0; i < n; i++ {
-		name := d.readString()
-		id := d.readUint()
+		name, err := d.readString()
+		if err != nil {
+			return err
+		}
+		id, err := d.readUint()
+		if err != nil {
+			return err
+		}
 		t, ok := typeMap[name]
 		if !ok {
-			return err{"Can't find type: " + name}
+			return MissingTypeName{name}
 		}
 		d.typeMap[id] = t
 	}
-	n = d.readInt()
+	return nil
+}
+
+func (d *Decoder) readPtrMap() error {
+	n, err := d.readInt()
+	if err != nil {
+		return err
+	}
 	objs := make([]reflect.Value, n)
 	for i := 0; i < n; i++ {
-		ptr := d.readUintptr()
-		t := d.readType()
+		ptr, err := d.readUintptr()
+		if err != nil {
+			return err
+		}
+		t, err := d.readType()
+		if err != nil {
+			return err
+		}
 		v := reflect.New(t)
-		v.Elem().Set(reflect.ValueOf(d.read(t)))
+		value, err := d.read(t)
+		if err != nil {
+			return err
+		}
+		v.Elem().Set(reflect.ValueOf(value))
 		objs[i] = v.Elem()
 		d.ptrMap[ptr] = v.Pointer()
 	}
@@ -112,147 +155,207 @@ func (d *Decoder) patchStruct(v reflect.Value) {
 	}
 }
 
-func (d *Decoder) readType() reflect.Type {
-	kind := reflect.Kind(d.readUint8())
+func (d *Decoder) readType() (reflect.Type, error) {
+	id, err := d.readUint8()
+	if err != nil {
+		return nil, err
+	}
+	kind := reflect.Kind(id)
+
 	switch kind {
 	case reflect.Bool:
-		return reflect.TypeOf(false)
+		return reflect.TypeOf(false), nil
 	case reflect.Int:
-		return reflect.TypeOf(int(0))
+		return reflect.TypeOf(int(0)), nil
 	case reflect.Int8:
-		return reflect.TypeOf(int8(0))
+		return reflect.TypeOf(int8(0)), nil
 	case reflect.Int16:
-		return reflect.TypeOf(int16(0))
+		return reflect.TypeOf(int16(0)), nil
 	case reflect.Int32:
-		return reflect.TypeOf(int32(0))
+		return reflect.TypeOf(int32(0)), nil
 	case reflect.Int64:
-		return reflect.TypeOf(int64(0))
+		return reflect.TypeOf(int64(0)), nil
 	case reflect.Uint:
-		return reflect.TypeOf(uint(0))
+		return reflect.TypeOf(uint(0)), nil
 	case reflect.Uint8:
-		return reflect.TypeOf(uint8(0))
+		return reflect.TypeOf(uint8(0)), nil
 	case reflect.Uint16:
-		return reflect.TypeOf(uint16(0))
+		return reflect.TypeOf(uint16(0)), nil
 	case reflect.Uint32:
-		return reflect.TypeOf(uint32(0))
+		return reflect.TypeOf(uint32(0)), nil
 	case reflect.Uint64:
-		return reflect.TypeOf(uint64(0))
+		return reflect.TypeOf(uint64(0)), nil
 	case reflect.Uintptr:
-		return reflect.TypeOf(uintptr(0))
+		return reflect.TypeOf(uintptr(0)), nil
 	case reflect.Float32:
-		return reflect.TypeOf(float32(0))
+		return reflect.TypeOf(float32(0)), nil
 	case reflect.Float64:
-		return reflect.TypeOf(float64(0))
+		return reflect.TypeOf(float64(0)), nil
 	case reflect.Complex64:
-		return reflect.TypeOf(complex64(0))
+		return reflect.TypeOf(complex64(0)), nil
 	case reflect.Complex128:
-		return reflect.TypeOf(complex128(0))
-	case reflect.Array, reflect.Chan, reflect.Func:
-		panic("Can't read " + kind.String() + " types")
+		return reflect.TypeOf(complex128(0)), nil
 	case reflect.Map:
-		key := d.readType()
-		elem := d.readType()
-		return reflect.MapOf(key, elem)
+		key, err := d.readType()
+		if err != nil {
+			return nil, err
+		}
+		elem, err := d.readType()
+		if err != nil {
+			return nil, err
+		}
+		return reflect.MapOf(key, elem), nil
 	case reflect.Ptr:
-		return reflect.PtrTo(d.readType())
+		t, err := d.readType()
+		if err != nil {
+			return nil, err
+		}
+		return reflect.PtrTo(t), nil
 	case reflect.Slice:
-		return reflect.SliceOf(d.readType())
+		t, err := d.readType()
+		if err != nil {
+			return nil, err
+		}
+		return reflect.SliceOf(t), nil
 	case reflect.String:
-		return reflect.TypeOf("")
+		return reflect.TypeOf(""), nil
 	case reflect.Struct, reflect.Interface:
-		id := d.readUint()
+		id, err := d.readUint()
+		if err != nil {
+			return nil, err
+		}
 		t, ok := d.typeMap[id]
 		if !ok {
-			panic("Can't find type id!")
+			return nil, MissingTypeId{id}
 		}
-		return t
+		return t, nil
 	}
-	panic("Unknown type kind: " + kind.String())
+	return nil, UnsupportedRead{kind}
 }
 
-func (d *Decoder) readBool() bool {
-	if d.readUint8() == 0 {
-		return false
-	} else {
-		return true
-	}
+func (d *Decoder) readBool() (bool, error) {
+	u, err := d.readUint8()
+	return (u != 0), err
 }
 
-func (d *Decoder) readInt() int {
-	return int(d.readInt64())
+func (d *Decoder) readInt() (int, error) {
+	i, err := d.readInt64()
+	return int(i), err
 }
 
-func (d *Decoder) readInt8() int8 {
-	u := d.readUint8()
+func (d *Decoder) readInt8() (int8, error) {
+	u, err := d.readUint8()
 	if u&1 != 0 {
-		return ^int8(u >> 1)
+		return ^int8(u >> 1), err
 	} else {
-		return int8(u >> 1)
+		return int8(u >> 1), err
 	}
 }
 
-func (d *Decoder) readInt16() int16 {
-	u := d.readUint16()
+func (d *Decoder) readInt16() (int16, error) {
+	u, err := d.readUint16()
 	if u&1 != 0 {
-		return ^int16(u >> 1)
+		return ^int16(u >> 1), err
 	} else {
-		return int16(u >> 1)
+		return int16(u >> 1), err
 	}
 }
 
-func (d *Decoder) readInt32() int32 {
-	u := d.readUint32()
+func (d *Decoder) readInt32() (int32, error) {
+	u, err := d.readUint32()
 	if u&1 != 0 {
-		return ^int32(u >> 1)
+		return ^int32(u >> 1), err
 	} else {
-		return int32(u >> 1)
+		return int32(u >> 1), err
 	}
 }
 
-func (d *Decoder) readInt64() int64 {
-	u := d.readUint64()
+func (d *Decoder) readInt64() (int64, error) {
+	u, err := d.readUint64()
 	if u&1 != 0 {
-		return ^int64(u >> 1)
+		return ^int64(u >> 1), err
 	} else {
-		return int64(u >> 1)
+		return int64(u >> 1), err
 	}
 }
 
-func (d *Decoder) readUint() uint {
-	return uint(d.readUint64())
+func (d *Decoder) readUint() (uint, error) {
+	u, err := d.readUint64()
+	return uint(u), err
 }
 
-func (d *Decoder) readUint8() uint8 {
-	u, _ := d.reader.ReadByte()
-	return u
+func (d *Decoder) readUint8() (uint8, error) {
+	return d.reader.ReadByte()
 }
 
-func (d *Decoder) readUint16() uint16 {
-	u1, _ := d.reader.ReadByte()
-	u2, _ := d.reader.ReadByte()
-	return (uint16(u2) << 8) | uint16(u1)
+func (d *Decoder) readUint16() (uint16, error) {
+	u1, err := d.reader.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	u2, err := d.reader.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	return (uint16(u2) << 8) | uint16(u1), nil
 }
 
-func (d *Decoder) readUint32() uint32 {
-	u1, _ := d.reader.ReadByte()
-	u2, _ := d.reader.ReadByte()
-	u3, _ := d.reader.ReadByte()
-	u4, _ := d.reader.ReadByte()
+func (d *Decoder) readUint32() (uint32, error) {
+	u1, err := d.reader.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	u2, err := d.reader.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	u3, err := d.reader.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	u4, err := d.reader.ReadByte()
+	if err != nil {
+		return 0, err
+	}
 	return (uint32(u4) << 24) |
 		(uint32(u3) << 16) |
 		(uint32(u2) << 8) |
-		uint32(u1)
+		uint32(u1), nil
 }
 
-func (d *Decoder) readUint64() uint64 {
-	u1, _ := d.reader.ReadByte()
-	u2, _ := d.reader.ReadByte()
-	u3, _ := d.reader.ReadByte()
-	u4, _ := d.reader.ReadByte()
-	u5, _ := d.reader.ReadByte()
-	u6, _ := d.reader.ReadByte()
-	u7, _ := d.reader.ReadByte()
-	u8, _ := d.reader.ReadByte()
+func (d *Decoder) readUint64() (uint64, error) {
+	u1, err := d.reader.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	u2, err := d.reader.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	u3, err := d.reader.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	u4, err := d.reader.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	u5, err := d.reader.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	u6, err := d.reader.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	u7, err := d.reader.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	u8, err := d.reader.ReadByte()
+	if err != nil {
+		return 0, err
+	}
 	return (uint64(u8) << 56) |
 		(uint64(u7) << 48) |
 		(uint64(u6) << 40) |
@@ -260,152 +363,201 @@ func (d *Decoder) readUint64() uint64 {
 		(uint64(u4) << 24) |
 		(uint64(u3) << 16) |
 		(uint64(u2) << 8) |
-		uint64(u1)
+		uint64(u1), nil
 }
 
-func (d *Decoder) readUintptr() uintptr {
-	return uintptr(d.readUint64())
+func (d *Decoder) readUintptr() (uintptr, error) {
+	u, err := d.readUint64()
+	return uintptr(u), err
 }
 
-func (d *Decoder) readFloat32() float32 {
-	return math.Float32frombits(d.readUint32())
+func (d *Decoder) readFloat32() (float32, error) {
+	u, err := d.readUint32()
+	return math.Float32frombits(u), err
 }
 
-func (d *Decoder) readFloat64() float64 {
-	return math.Float64frombits(d.readUint64())
+func (d *Decoder) readFloat64() (float64, error) {
+	u, err := d.readUint64()
+	return math.Float64frombits(u), err
 }
 
-func (d *Decoder) readComplex64() complex64 {
-	r := math.Float32frombits(d.readUint32())
-	i := math.Float32frombits(d.readUint32())
-	return complex(r, i)
+func (d *Decoder) readComplex64() (complex64, error) {
+	r, err := d.readUint32()
+	if err != nil {
+		return 0, err
+	}
+	i, err := d.readUint32()
+	if err != nil {
+		return 0, err
+	}
+	return complex(math.Float32frombits(r), math.Float32frombits(i)), nil
 }
 
-func (d *Decoder) readComplex128() complex128 {
-	r := math.Float64frombits(d.readUint64())
-	i := math.Float64frombits(d.readUint64())
-	return complex(r, i)
+func (d *Decoder) readComplex128() (complex128, error) {
+	r, err := d.readUint64()
+	if err != nil {
+		return 0, err
+	}
+	i, err := d.readUint64()
+	if err != nil {
+		return 0, err
+	}
+	return complex(math.Float64frombits(r), math.Float64frombits(i)), nil
 }
 
-func (d *Decoder) readMap(t reflect.Type) interface{} {
-	n := d.readInt()
-	v := reflect.MakeMap(t)
+func (d *Decoder) readMap(t reflect.Type) (interface{}, error) {
+	n, err := d.readInt()
+	if err != nil {
+		return nil, err
+	}
+	m := reflect.MakeMap(t)
 	keyType := t.Key()
 	elemType := t.Elem()
 	for i := 0; i < n; i++ {
-		key := reflect.ValueOf(d.read(keyType))
-		val := reflect.ValueOf(d.read(elemType))
-		v.SetMapIndex(key, val)
+		k, err := d.read(keyType)
+		if err != nil {
+			return nil, err
+		}
+		v, err := d.read(elemType)
+		if err != nil {
+			return nil, err
+		}
+		m.SetMapIndex(reflect.ValueOf(k), reflect.ValueOf(v))
 	}
-	return v.Interface()
+	return m.Interface(), nil
 }
 
-func (d *Decoder) readPtr(t reflect.Type) interface{} {
-	addr := d.readUintptr()
+func (d *Decoder) readPtr(t reflect.Type) (interface{}, error) {
+	addr, err := d.readUintptr()
+	if err != nil {
+		return nil, err
+	}
 	if d.postHeader {
 		patched, ok := d.ptrMap[addr]
 		if !ok {
-			panic("Missing pointer " + string(addr))
+			return nil, MissingPointer{addr}
 		}
 		addr = patched
 	}
 	ptr := unsafe.Pointer(addr)
-	return reflect.NewAt(t.Elem(), ptr).Interface()
+	return reflect.NewAt(t.Elem(), ptr).Interface(), nil
 }
 
-func (d *Decoder) readSlice(t reflect.Type) interface{} {
-	n := d.readInt()
+func (d *Decoder) readSlice(t reflect.Type) (interface{}, error) {
+	n, err := d.readInt()
+	if err != nil {
+		return nil, err
+	}
 	inner := t.Elem()
 	v := reflect.MakeSlice(t, 0, n)
 	for i := 0; i < n; i++ {
-		elem := reflect.ValueOf(d.read(inner))
-		v = reflect.Append(v, elem)
+		elem, err := d.read(inner)
+		if err != nil {
+			return nil, err
+		}
+		v = reflect.Append(v, reflect.ValueOf(elem))
 	}
-	return v.Interface()
+	return v.Interface(), nil
 }
 
-func (d *Decoder) readString() string {
-	n := d.readInt()
+func (d *Decoder) readString() (string, error) {
+	n, err := d.readInt()
+	if err != nil {
+		return "", err
+	}
 	buf := make([]byte, n)
 	for i := 0; i < n; i++ {
-		buf[i], _ = d.reader.ReadByte()
+		if buf[i], err = d.reader.ReadByte(); err != nil {
+			return "", err
+		}
 	}
-	return string(buf)
+	return string(buf), nil
 }
 
-func (d *Decoder) readStruct(t reflect.Type) interface{} {
-	n := d.readInt()
+func (d *Decoder) readStruct(t reflect.Type) (interface{}, error) {
+	n, err := d.readInt()
+	if err != nil {
+		return nil, err
+	}
 	v := reflect.New(t).Elem()
 	for i := 0; i < n; i++ {
-		name := d.readString()
+		name, err := d.readString()
+		if err != nil {
+			return nil, err
+		}
 		field, ok := t.FieldByName(name)
 		if !ok {
-			panic("Can't find field " + name + " in " + t.String())
+			return nil, MissingField{t, name}
 		}
-		value := reflect.ValueOf(d.read(field.Type))
-		v.FieldByName(name).Set(value)
+		value, err := d.read(field.Type)
+		if err != nil {
+			return nil, err
+		}
+		v.FieldByName(name).Set(reflect.ValueOf(value))
 	}
-	return v.Interface()
+	return v.Interface(), nil
 }
 
-func (d *Decoder) read(t reflect.Type) interface{} {
+func (d *Decoder) read(t reflect.Type) (interface{}, error) {
+	var err error
 	if isInterface(t) {
-		t = d.readType()
+		if t, err = d.readType(); err != nil {
+			return nil, err
+		}
 	}
 
 	var value interface{}
 
 	switch t.Kind() {
 	case reflect.Bool:
-		value = d.readBool()
+		value, err = d.readBool()
 	case reflect.Int:
-		value = d.readInt()
+		value, err = d.readInt()
 	case reflect.Int8:
-		value = d.readInt8()
+		value, err = d.readInt8()
 	case reflect.Int16:
-		value = d.readInt16()
+		value, err = d.readInt16()
 	case reflect.Int32:
-		value = d.readInt32()
+		value, err = d.readInt32()
 	case reflect.Int64:
-		value = d.readInt64()
+		value, err = d.readInt64()
 	case reflect.Uint:
-		value = d.readUint()
+		value, err = d.readUint()
 	case reflect.Uint8:
-		value = d.readUint8()
+		value, err = d.readUint8()
 	case reflect.Uint16:
-		value = d.readUint16()
+		value, err = d.readUint16()
 	case reflect.Uint32:
-		value = d.readUint32()
+		value, err = d.readUint32()
 	case reflect.Uint64:
-		value = d.readUint64()
+		value, err = d.readUint64()
 	case reflect.Uintptr:
-		value = d.readUintptr()
+		value, err = d.readUintptr()
 	case reflect.Float32:
-		value = d.readFloat32()
+		value, err = d.readFloat32()
 	case reflect.Float64:
-		value = d.readFloat64()
+		value, err = d.readFloat64()
 	case reflect.Complex64:
-		value = d.readComplex64()
+		value, err = d.readComplex64()
 	case reflect.Complex128:
-		value = d.readComplex128()
-	case reflect.Array:
-		panic("Can't read arrays")
-	case reflect.Chan, reflect.Func:
-		panic("Can't read " + t.Kind().String() + " types")
+		value, err = d.readComplex128()
 	case reflect.Interface:
-		value = d.read(d.readType())
+		it, err := d.readType()
+		if err == nil {
+			value, err = d.read(it)
+		}
 	case reflect.Map:
-		value = d.readMap(t)
+		value, err = d.readMap(t)
 	case reflect.Ptr:
-		value = d.readPtr(t)
+		value, err = d.readPtr(t)
 	case reflect.Slice:
-		value = d.readSlice(t)
+		value, err = d.readSlice(t)
 	case reflect.String:
-		value = d.readString()
+		value, err = d.readString()
 	case reflect.Struct:
-		value = d.readStruct(t)
+		value, err = d.readStruct(t)
 	default:
-		panic("Unknown type kind: " + t.Kind().String())
+		err = UnsupportedRead{t.Kind()}
 	}
-	return value
+	return value, err
 }

@@ -26,11 +26,11 @@ func roundtrip(t *testing.T, in interface{}) interface{} {
 	enc.Finish()
 	dec, err := NewDecoder(buf)
 	if err != nil {
-		t.Fatal("Could not construct decoder")
+		t.Fatalf("Could not construct decoder: %v", err)
 	}
 	out, err := dec.Read()
 	if err != nil {
-		t.Fatal("Failed to read object")
+		t.Fatalf("Failed to read object: %v", err)
 	}
 	return out
 }
